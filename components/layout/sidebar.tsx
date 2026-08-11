@@ -9,33 +9,63 @@ import {
   ShieldCheck,
   Users,
 } from 'lucide-react';
+import { useCurrentAdmin } from '@/hooks/use-current-admin';
 import { cn } from '@/lib/utils';
+import type { Capability } from '@/lib/rbac';
 
-const navItems = [
+// ─── Nav items ───────────────────────────────────────────────────────────────
+//
+// Chaque item peut déclarer une `capability` requise. Un item sans capability
+// est visible à tous les rôles authentifiés.
+//
+// Actuellement `admins.view` n'a pas de lien dédié — il sera ajouté au
+// Checkpoint 5c comme sous-page de /settings ou entrée à part.
+
+interface NavItem {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  capability?: Capability;
+}
+
+const navItems: readonly NavItem[] = [
   {
     label: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
+    capability: 'dashboard.view',
   },
   {
     label: 'Utilisateurs',
     href: '/users',
     icon: Users,
+    capability: 'users.view',
   },
   {
     label: 'Audit Log',
     href: '/audit-log',
     icon: ScrollText,
+    capability: 'audit-log.view',
   },
   {
     label: 'Settings',
     href: '/settings',
     icon: Settings,
+    // Pas de capability : /settings contient les préférences perso de
+    // l'admin courant (2FA, mot de passe, etc.), visible à tous.
   },
 ] as const;
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { hasCapability, isReady } = useCurrentAdmin();
+
+  // Filtrage par rôle. Si pas encore ready, on affiche la sidebar complète
+  // au premier render (évite le flash de liens qui disparaissent puis
+  // réapparaissent). Le AuthGuard parent bloque de toute façon les routes.
+  const visibleItems = navItems.filter(
+    (item) => !item.capability || !isReady || hasCapability(item.capability),
+  );
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 flex w-16 flex-col border-r border-sidebar-border bg-sidebar lg:w-56">
@@ -51,7 +81,7 @@ export function Sidebar() {
 
       {/* ─── Navigation ─────────────────────────────────────────────── */}
       <nav className="flex flex-1 flex-col gap-1 p-2">
-        {navItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive =
             pathname === item.href ||
             (item.href !== '/dashboard' && pathname?.startsWith(item.href));

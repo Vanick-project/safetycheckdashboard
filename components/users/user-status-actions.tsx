@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useUpdateUserStatus } from '@/hooks/use-admin-users';
+import { useCan } from '@/hooks/use-current-admin';
 import type { UserStatus } from '@/lib/types';
 import { ApiError } from '@/lib/types';
 
@@ -36,6 +37,12 @@ export function UserStatusActions({
 }: UserStatusActionsProps) {
   const router = useRouter();
   const mutation = useUpdateUserStatus();
+
+  // ─── RBAC UI ──────────────────────────────────────────────────────────
+  // `users.suspend` couvre les deux directions ACTIVE ↔ PAUSED. Sans ce
+  // couplage, un SUPPORT pourrait suspendre sans pouvoir réactiver — étrange.
+  const canSuspend = useCan('users.suspend');
+  const canDelete = useCan('users.delete');
 
   const [pending, setPending] = useState<PendingAction>(null);
   const [reason, setReason] = useState('');
@@ -93,10 +100,17 @@ export function UserStatusActions({
 
   const isPending = mutation.isPending;
 
+  // ─── Cas "aucune action possible" ─────────────────────────────────────
+  // Le rôle courant n'a ni suspend ni delete, et le user n'est pas déjà
+  // supprimé. On affiche un message explicite pour éviter que l'admin ne
+  // pense qu'il y a un bug.
+  const noActionAvailable =
+    currentStatus !== 'DELETED' && !canSuspend && !canDelete;
+
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {currentStatus === 'ACTIVE' && (
+        {currentStatus === 'ACTIVE' && canSuspend && (
           <Button
             variant="outline"
             onClick={() => setPending('suspend')}
@@ -106,7 +120,7 @@ export function UserStatusActions({
             Suspendre
           </Button>
         )}
-        {currentStatus === 'PAUSED' && (
+        {currentStatus === 'PAUSED' && canSuspend && (
           <Button
             variant="outline"
             onClick={() => setPending('reactivate')}
@@ -116,7 +130,7 @@ export function UserStatusActions({
             Réactiver
           </Button>
         )}
-        {currentStatus !== 'DELETED' && (
+        {currentStatus !== 'DELETED' && canDelete && (
           <Button
             variant="destructive"
             onClick={() => setPending('delete')}
@@ -126,10 +140,18 @@ export function UserStatusActions({
             Supprimer
           </Button>
         )}
+
         {currentStatus === 'DELETED' && (
           <p className="text-sm text-muted-foreground">
             Cet utilisateur a été supprimé. Aucune action possible via le
             dashboard.
+          </p>
+        )}
+
+        {noActionAvailable && (
+          <p className="text-sm text-muted-foreground">
+            Consultation seulement — votre rôle ne permet pas de modifier ce
+            compte.
           </p>
         )}
       </div>
