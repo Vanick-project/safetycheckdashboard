@@ -7,6 +7,7 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  Users,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -15,6 +16,11 @@ const navItems = [
     label: 'Dashboard',
     href: '/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    label: 'Utilisateurs',
+    href: '/users',
+    icon: Users,
   },
   {
     label: 'Audit Log',

@@ -36,11 +36,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable}`}
     >
-      <body className="min-h-full flex flex-col antialiased">
+      
+      <body className="min-h-full flex flex-col antialiased" suppressHydrationWarning>
         <QueryProvider>
           <AuthProvider>{children}</AuthProvider>
           <Toaster richColors position="top-right" closeButton />
         </QueryProvider>
+        
       </body>
     </html>
   );

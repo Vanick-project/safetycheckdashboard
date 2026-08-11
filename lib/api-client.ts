@@ -19,11 +19,22 @@ import {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
-if (!API_URL) {
-  throw new Error(
-    'NEXT_PUBLIC_API_URL is not set. Copy .env.example to .env.local.',
-  );
+/**
+ * Retourne l'URL de l'API. Évaluée à chaque appel plutôt qu'au module load
+ * pour éviter de crasher le prerender Next.js sur des pages qui n'appellent
+ * jamais l'API (page d'erreur, page publique, etc.).
+ *
+ * En pratique la valeur est inlined au build par Next.js (préfixe
+ * NEXT_PUBLIC_*), donc l'appel de fonction n'a aucun coût runtime.
+ */
+function getApiUrl(): string {
+  const url = process.env.NEXT_PUBLIC_API_URL;
+  if (!url) {
+    throw new Error(
+      'NEXT_PUBLIC_API_URL is not set. Copy .env.example to .env.local.',
+    );
+  }
+  return url;
 }
 
 // ─── État en mémoire ──────────────────────────────────────────────────────────
@@ -59,7 +70,7 @@ function refreshAccessToken(): Promise<string> {
   if (refreshPromise) return refreshPromise;
 
   const p = (async () => {
-    const res = await fetch(`${API_URL}/admin/auth/refresh`, {
+    const res = await fetch(`${getApiUrl()}/admin/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -94,7 +105,7 @@ function refreshAccessToken(): Promise<string> {
  */
 export async function bootRefresh(): Promise<SessionResponse | null> {
   try {
-    const res = await fetch(`${API_URL}/admin/auth/refresh`, {
+    const res = await fetch(`${getApiUrl()}/admin/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -149,7 +160,7 @@ export async function apiFetch<T>(
       finalHeaders.Authorization = `Bearer ${accessToken}`;
     }
 
-    return fetch(`${API_URL}${path}`, {
+    return fetch(`${getApiUrl()}${path}`, {
       ...init,
       headers: finalHeaders,
       credentials: 'include',
