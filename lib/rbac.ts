@@ -67,4 +67,11 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
   FINANCE: 'Finance',
   SUPPORT: 'Support',
   ANALYST: 'Analyste',
-};
+  // ─── Rôles org (multi-tenant B2B — pas encore activé) ─────────────────
+  // Ajoutés pour matcher AdminRole côté backend. Ils apparaîtront dans le
+  // dropdown du form d'invitation au Checkpoint 5c.2 si un organizationId
+  // est passé. En attendant, l'UI ne les affiche pas.
+  ORG_OWNER: 'Propriétaire (org)',
+  ORG_ADMIN: 'Admin (org)',
+  ORG_VIEWER: 'Lecteur (org)',
+} as const;

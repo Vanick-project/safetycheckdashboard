@@ -11,7 +11,10 @@ export type AdminRole =
   | 'ADMIN'
   | 'FINANCE'
   | 'SUPPORT'
-  | 'ANALYST';
+  | 'ANALYST'
+  | 'ORG_OWNER'
+  | 'ORG_ADMIN'
+  | 'ORG_VIEWER';
 
 // Rôles organisation (future expansion B2B)
 export type OrgRole = 'ORG_OWNER' | 'ORG_ADMIN' | 'ORG_VIEWER';

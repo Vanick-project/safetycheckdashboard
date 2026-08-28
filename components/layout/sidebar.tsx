@@ -8,6 +8,7 @@ import {
   Settings,
   ShieldCheck,
   Users,
+  UserCog,
 } from 'lucide-react';
 import { useCurrentAdmin } from '@/hooks/use-current-admin';
 import { cn } from '@/lib/utils';
@@ -18,8 +19,9 @@ import type { Capability } from '@/lib/rbac';
 // Chaque item peut déclarer une `capability` requise. Un item sans capability
 // est visible à tous les rôles authentifiés.
 //
-// Actuellement `admins.view` n'a pas de lien dédié — il sera ajouté au
-// Checkpoint 5c comme sous-page de /settings ou entrée à part.
+// L'entrée "Admins" a été ajoutée au Checkpoint 5c.2 avec capability
+// `admins.view` (SUPER_ADMIN + ADMIN). Positionnée juste avant Settings pour
+// grouper visuellement les items d'administration technique.
 
 interface NavItem {
   label: string;
@@ -48,6 +50,12 @@ const navItems: readonly NavItem[] = [
     capability: 'audit-log.view',
   },
   {
+    label: 'Admins',
+    href: '/settings/admins',
+    icon: UserCog,
+    capability: 'admins.view',
+  },
+  {
     label: 'Settings',
     href: '/settings',
     icon: Settings,
@@ -60,9 +68,6 @@ export function Sidebar() {
   const pathname = usePathname();
   const { hasCapability, isReady } = useCurrentAdmin();
 
-  // Filtrage par rôle. Si pas encore ready, on affiche la sidebar complète
-  // au premier render (évite le flash de liens qui disparaissent puis
-  // réapparaissent). Le AuthGuard parent bloque de toute façon les routes.
   const visibleItems = navItems.filter(
     (item) => !item.capability || !isReady || hasCapability(item.capability),
   );
@@ -82,9 +87,15 @@ export function Sidebar() {
       {/* ─── Navigation ─────────────────────────────────────────────── */}
       <nav className="flex flex-1 flex-col gap-1 p-2">
         {visibleItems.map((item) => {
+          // Match spécial pour /settings/admins : sinon /settings serait
+          // aussi actif quand on est sur /settings/admins (via startsWith).
+          const isSettingsRoot =
+            item.href === '/settings' && pathname?.startsWith('/settings/');
           const isActive =
-            pathname === item.href ||
-            (item.href !== '/dashboard' && pathname?.startsWith(item.href));
+            !isSettingsRoot &&
+            (pathname === item.href ||
+              (item.href !== '/dashboard' &&
+                pathname?.startsWith(item.href)));
 
           return (
             <Link
