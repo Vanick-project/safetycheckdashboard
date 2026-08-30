@@ -147,6 +147,15 @@ export function adminErrorMessage(
     case 'admin_not_found':
       return 'Cet admin est introuvable.';
 
+    case 'invitation_not_found':
+      return 'Cette invitation est introuvable. Elle a peut-être été supprimée.';
+
+    case 'invitation_already_consumed':
+      return "L'invitation a déjà été acceptée. Rafraîchissez la liste pour voir le nouvel admin.";
+
+    case 'invitation_already_revoked':
+      return 'Cette invitation a déjà été révoquée.';
+      
     case 'invalid_body':
     case 'invalid_query':
     case 'invalid_params':

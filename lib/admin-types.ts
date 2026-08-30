@@ -146,11 +146,14 @@ export interface InviteAdminResponse {
   emailMessageId?: string;
 }
 
-/**
- * Body de l'erreur 409 `invitation_pending`. Backend inclut `expiresAt` pour
- * qu'on puisse informer le SUPER_ADMIN "expire le X" dans le toast.
- */
+// ─── Modification de l'interface existante ─────────────────────────────────
+//
+// Le backend a été mis à jour pour inclure invitationId dans le body de
+// l'erreur 409 invitation_pending, permettant au frontend de proposer une
+// action "Révoquer et réinviter" inline dans le toast.
+
 export interface InvitationPendingErrorDetails {
+  invitationId: string;  // ← nouveau champ
   expiresAt: string;
 }
 
@@ -207,4 +210,43 @@ export type AdminErrorCode =
   | 'invalid_transition'
   | 'email_send_failed'
   | 'invalid_token'
-  | 'token_expired';
+  | 'token_expired'
+  // ── Nouveaux codes DELETE /admin/admins/invitations/:id ──
+  | 'invitation_not_found'
+  | 'invitation_already_consumed'
+  | 'invitation_already_revoked';
+
+
+// ─── Ajouts pour DELETE /admin/admins/invitations/:id ───────────────────────
+
+/**
+ * Body optionnel pour la révocation.
+ */
+export interface RevokeInvitationBody {
+  reason?: string;
+}
+
+/**
+ * Response 200 après révocation réussie.
+ */
+export interface RevokeInvitationResponse {
+  invitation: {
+    id: string;
+    email: string;
+    role: AdminRole;
+    revokedAt: string;      // ISO datetime
+    revokedById: string;
+  };
+}
+
+/**
+ * Details des erreurs 409 sur DELETE invitations.
+ * Le backend inclut la date pertinente pour contexte utilisateur.
+ */
+export interface InvitationAlreadyConsumedErrorDetails {
+  consumedAt: string;
+}
+
+export interface InvitationAlreadyRevokedErrorDetails {
+  revokedAt: string;
+}

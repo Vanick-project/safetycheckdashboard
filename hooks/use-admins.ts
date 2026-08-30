@@ -17,6 +17,9 @@ import type {
   UpdateAdminResponse,
   UpdateAdminRoleBody,
   UpdateAdminStatusBody,
+  // ── Nouveaux imports pour useRevokeInvitation ──
+  RevokeInvitationBody,
+  RevokeInvitationResponse,
 } from '@/lib/admin-types';
 import type { AdminRole } from '@/lib/types';
 
@@ -190,6 +193,69 @@ export function useUpdateAdminRole() {
     onSettled: (_data, _err, { id }) => {
       queryClient.invalidateQueries({ queryKey: adminsKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: adminsKeys.lists() });
+    },
+  });
+}
+
+// ─── Query keys pour les invitations (futur-proofing) ─────────────────────────
+//
+// Namespace séparé du admins parce que sémantiquement différent : les
+// AdminInvitation ne sont pas des AdminUser (l'invité n'existe pas encore
+// en tant qu'admin tant qu'il n'a pas accepté).
+//
+// Aujourd'hui aucun hook n'utilise ce namespace en lecture (pas de
+// GET /admin/admins/invitations). Il est prêt pour quand on ajoutera une
+// page listant les invitations pending.
+
+export const invitationsKeys = {
+  all: ['adminInvitations'] as const,
+  lists: () => [...invitationsKeys.all, 'list'] as const,
+  detail: (id: string) => [...invitationsKeys.all, 'detail', id] as const,
+};
+
+// ─── useRevokeInvitation ──────────────────────────────────────────────────────
+
+interface RevokeInvitationVariables {
+  id: string;
+  body?: RevokeInvitationBody;
+}
+
+/**
+ * Révoque une invitation admin en cours (non consommée, non expirée, non
+ * déjà révoquée). Utilisé par le flow "Révoquer et réinviter" dans la
+ * modale d'invitation quand un email a déjà une invitation en attente.
+ *
+ * Contraintes backend :
+ *   - SUPER_ADMIN uniquement (capability admins.manage)
+ *   - Refuse si consumedAt !== null (409 invitation_already_consumed)
+ *   - Refuse si revokedAt !== null (409 invitation_already_revoked)
+ *   - Refuse si l'invitation n'existe pas (404 invitation_not_found)
+ *
+ * Comportement :
+ *   - Invalidation systématique des listes admins ET des listes
+ *     invitations (au cas où un futur endpoint GET invitations existe).
+ *   - Pas d'optimistic update — c'est une action correctrice ponctuelle,
+ *     la latence est courte et l'utilisateur attend le résultat.
+ */
+export function useRevokeInvitation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, body }: RevokeInvitationVariables) => {
+      return apiFetch<RevokeInvitationResponse>(
+        `/admin/admins/invitations/${id}`,
+        {
+          method: 'DELETE',
+          ...(body !== undefined && { body }),
+        },
+      );
+    },
+    onSuccess: () => {
+      // Invalider les listes admins par prudence (l'invitation ne s'y
+      // trouve pas mais si un admin a été créé en parallèle, on veut
+      // le refresh) + le namespace invitations pour le jour où il existe.
+      queryClient.invalidateQueries({ queryKey: adminsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: invitationsKeys.lists() });
     },
   });
 }

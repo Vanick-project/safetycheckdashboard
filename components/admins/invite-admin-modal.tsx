@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -26,16 +26,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useInviteAdmin } from '@/hooks/use-admins';
+import {
+  useInviteAdmin,
+  useRevokeInvitation,
+} from '@/hooks/use-admins';
 import { adminErrorMessage } from '@/lib/admin-helpers';
 import { ROLE_LABELS } from '@/lib/rbac';
 import { ApiError } from '@/lib/types';
 import type { AdminRole } from '@/lib/types';
-import type { InvitationPendingErrorDetails } from '@/lib/admin-types';
+import type {
+  InvitationPendingErrorDetails,
+  InviteAdminBody,
+  InviteAdminResponse,
+} from '@/lib/admin-types';
 
 // ─── Rôles proposés à l'invitation ───────────────────────────────────────────
-// Comme pour le filtre, on limite aux 5 rôles platform. L'ajout des ORG_*
-// viendra avec l'activation du multi-tenant.
 const INVITABLE_ROLES: AdminRole[] = [
   'SUPER_ADMIN',
   'ADMIN',
@@ -64,11 +69,17 @@ interface InviteAdminModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+// ─── Reason automatique de la révocation ────────────────────────────────────
+// Injectée dans l'audit log — permet au SUPER_ADMIN qui audite plus tard de
+// distinguer une révocation "correction UX" d'une révocation manuelle.
+const REVOKE_REASON = 'Remplacement par nouvelle invitation depuis la modal';
+
 export function InviteAdminModal({
   open,
   onOpenChange,
 }: InviteAdminModalProps) {
-  const mutation = useInviteAdmin();
+  const inviteMutation = useInviteAdmin();
+  const revokeMutation = useRevokeInvitation();
 
   const {
     register,
@@ -81,37 +92,62 @@ export function InviteAdminModal({
     resolver: zodResolver(inviteSchema),
     defaultValues: {
       email: '',
-      role: 'SUPPORT', // Défaut prudent : rôle le plus courant, non-privilégié
+      role: 'SUPPORT',
     },
   });
 
   const selectedRole = watch('role');
 
-  // Reset le form quand la modale se ferme (mais pas pendant la mutation).
   useEffect(() => {
     if (!open) reset({ email: '', role: 'SUPPORT' });
   }, [open, reset]);
 
+  // ─── Call unitaire POST /invite ──────────────────────────────────────
+  //
+  // Extrait dans une fonction réutilisable pour permettre le "retry after
+  // revoke". On garde la logique de mapping erreurs dans le caller pour
+  // qu'il puisse décider quoi faire du toast (action vs simple message).
+
+  const doInvite = async (
+    values: InviteFormValues,
+  ): Promise<InviteAdminResponse> => {
+    return inviteMutation.mutateAsync({
+      email: values.email,
+      role: values.role,
+      // organizationId : non passé pour les rôles platform
+    });
+  };
+
+  // ─── Flow principal onSubmit ─────────────────────────────────────────
+
   const onSubmit = async (values: InviteFormValues) => {
     try {
-      const res = await mutation.mutateAsync({
-        email: values.email,
-        role: values.role,
-        // organizationId : pas passé pour les rôles platform (backend le
-        // refuserait avec role_org_mismatch). Ajouter quand ORG_* actifs.
-      });
+      const res = await doInvite(values);
       toast.success(
         `Invitation envoyée à ${res.invitation.email}. Elle expire dans 48h.`,
       );
       onOpenChange(false);
     } catch (err) {
       if (err instanceof ApiError) {
-        // Cas spécial invitation_pending : le backend renvoie details.expiresAt
-        // pour qu'on puisse afficher la date d'expiration dans le toast.
+        // ── Cas spécial : invitation déjà en cours ──
+        // On propose une action "Révoquer et réinviter" inline dans le toast.
         if (err.code === 'invitation_pending') {
           const details = err.details as
             | InvitationPendingErrorDetails
             | undefined;
+          if (details?.invitationId) {
+            showPendingInvitationToast({
+              message: adminErrorMessage('invitation_pending', {
+                expiresAt: details.expiresAt,
+              }),
+              invitationId: details.invitationId,
+              onRevokeAndReinvite: () =>
+                handleRevokeAndReinvite(details.invitationId, values),
+            });
+            return;
+          }
+          // Fallback si le backend n'a pas retourné invitationId (rétro-
+          // compatibilité au cas où l'ancien format serait servi).
           toast.error(
             adminErrorMessage('invitation_pending', {
               expiresAt: details?.expiresAt,
@@ -126,14 +162,71 @@ export function InviteAdminModal({
     }
   };
 
-  const isPending = mutation.isPending;
+  // ─── Flow "Révoquer et réinviter" ────────────────────────────────────
+  //
+  // Séquence :
+  //   1. DELETE l'invitation en cours (avec reason automatique)
+  //   2. Selon le résultat du DELETE :
+  //      - 200                          → continue vers POST /invite
+  //      - 409 invitation_already_revoked → succès silencieux, continue
+  //      - 409 invitation_already_consumed → STOP, l'invité a accepté
+  //      - 404 invitation_not_found     → STOP, edge case race condition
+  //      - autre                        → STOP, toast erreur
+  //   3. POST /invite (retry)
+  //      - Succès → toast + close modal
+  //      - Erreur → toast erreur, modale reste ouverte
+
+  const handleRevokeAndReinvite = async (
+    invitationId: string,
+    values: InviteFormValues,
+  ) => {
+    // ── Step 1 : révocation ──
+    try {
+      await revokeMutation.mutateAsync({
+        id: invitationId,
+        body: { reason: REVOKE_REASON },
+      });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        // Traiter "already revoked" comme succès silencieux (idempotent)
+        if (err.code === 'invitation_already_revoked') {
+          // Ne rien faire, on continue vers le POST /invite
+        } else if (err.code === 'invitation_already_consumed') {
+          toast.error(adminErrorMessage('invitation_already_consumed'));
+          return;
+        } else {
+          toast.error(adminErrorMessage(err.code));
+          return;
+        }
+      } else {
+        toast.error('Erreur inattendue lors de la révocation.');
+        return;
+      }
+    }
+
+    // ── Step 2 : retry POST /invite ──
+    try {
+      const res = await doInvite(values);
+      toast.success(
+        `Invitation révoquée et renvoyée à ${res.invitation.email}. Elle expire dans 48h.`,
+      );
+      onOpenChange(false);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toast.error(adminErrorMessage(err.code));
+      } else {
+        toast.error('Erreur inattendue lors du renvoi.');
+      }
+      // La modale reste ouverte pour laisser retenter
+    }
+  };
+
+  const isPending = inviteMutation.isPending || revokeMutation.isPending;
 
   return (
     <AlertDialog
       open={open}
       onOpenChange={(next) => {
-        // On empêche la fermeture pendant l'envoi pour éviter les
-        // désynchros (le user pourrait re-cliquer et créer 2 invitations).
         if (!next && isPending) return;
         onOpenChange(next);
       }}
@@ -224,10 +317,33 @@ export function InviteAdminModal({
   );
 }
 
-// ─── Description contextuelle du rôle ────────────────────────────────────────
+// ─── Toast avec action "Révoquer et réinviter" ──────────────────────────────
 //
-// Aide au choix : un SUPER_ADMIN qui invite en vitesse peut se tromper de
-// rôle. Le petit paragraphe explique les capabilities de chaque rôle.
+// Extrait dans une fonction dédiée pour clarté du onSubmit. On utilise le
+// pattern natif Sonner `action: { label, onClick }` qui rend un bouton
+// à droite du toast. Duration 10s = assez pour lire + cliquer sans bloquer
+// l'UI indéfiniment.
+
+interface ShowPendingInvitationToastArgs {
+  message: string;
+  invitationId: string;
+  onRevokeAndReinvite: () => void;
+}
+
+function showPendingInvitationToast({
+  message,
+  onRevokeAndReinvite,
+}: ShowPendingInvitationToastArgs) {
+  toast.error(message, {
+    duration: 10_000,
+    action: {
+      label: 'Révoquer et réinviter',
+      onClick: () => onRevokeAndReinvite(),
+    },
+  });
+}
+
+// ─── Descriptions contextuelles des rôles ────────────────────────────────────
 
 const ROLE_DESCRIPTIONS: Record<AdminRole, string> = {
   SUPER_ADMIN:
