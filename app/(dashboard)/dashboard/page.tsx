@@ -5,6 +5,7 @@ import { AlertCircle, RefreshCw } from 'lucide-react';
 import { useAdminStats } from '@/hooks/use-admin-stats';
 import { PeriodSelector } from '@/components/dashboard/period-selector';
 import { SnapshotCard, VolumeCard } from '@/components/dashboard/stat-card';
+import { RevenueCards } from '@/components/dashboard/revenue-cards';
 import type { DateRange } from '@/components/dashboard/custom-range-popover';
 import type {
   StatsPeriodType,
@@ -31,6 +32,7 @@ export default function DashboardPage() {
 
   const snapshot = data?.snapshot;
   const volume = data?.volume;
+  const revenue = data?.revenue;
 
   // ─── Handlers PeriodSelector ──────────────────────────────────────────
   // Preset → reset la range custom pour éviter d'y retomber au prochain
@@ -165,12 +167,10 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* ─── Section Volume ──────────────────────────────────────────── */}
+      {/* ─── Section Opérations (ex-"Volume sur la période") ─────────── */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Volume sur la période
-          </h2>
+          <h2 className="text-lg font-semibold tracking-tight">Opérations</h2>
           {data?.generatedAt && (
             <span className="text-xs text-muted-foreground">
               Généré à{' '}
@@ -210,6 +210,18 @@ export default function DashboardPage() {
             loading={isLoading}
           />
         </div>
+      </section>
+
+      {/* ─── Section Revenus ─────────────────────────────────────────── */}
+      <section className="space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">Revenus</h2>
+          <span className="text-xs text-muted-foreground">
+            Montants en USD
+          </span>
+        </div>
+
+        <RevenueCards revenue={revenue} loading={isLoading} />
       </section>
     </div>
   );

@@ -1,5 +1,5 @@
 // ─── lib/format.ts ────────────────────────────────────────────────────────────
-// Helpers de formatage réutilisables — dates, téléphones, etc.
+// Helpers de formatage réutilisables — dates, téléphones, monnaie, etc.
 // Centralisés ici pour éviter la duplication et garantir la cohérence
 // entre pages.
 
@@ -52,4 +52,25 @@ export function formatRelative(iso: string | null): string {
   if (diffSec < 86400) return `il y a ${Math.floor(diffSec / 3600)} h`;
   if (diffSec < 604800) return `il y a ${Math.floor(diffSec / 86400)} j`;
   return formatDate(iso);
+}
+
+// ─── Monnaie ──────────────────────────────────────────────────────────────────
+
+/**
+ * Formatte un montant USD au format américain standard : "$1,234.56".
+ *
+ * Utilise en-US (pas fr-CA/fr-FR) volontairement : les métriques revenue
+ * du dashboard sont en USD only, et un affichage américain — signe dollar
+ * collé, virgules pour les milliers, point décimal — est la convention
+ * attendue par les outils financiers (Stripe dashboard, RevenueCat, etc.).
+ * On garde 2 décimales même pour les entiers pour la cohérence visuelle
+ * ($1,000.00 plutôt que $1,000) — c'est ce qui est standard en compta SaaS.
+ */
+export function formatUSD(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }

@@ -42,7 +42,7 @@ function StatCardBase({ label, children, hint, loading }: StatCardBaseProps) {
 interface SnapshotCardProps {
   label: string;
   /** Nombre formaté automatiquement en fr-FR, ou chaîne préformatée
-   *  (ex : "82.5%", "1.4"). */
+   *  (ex : "82.5%", "1.4", "$1,234.56"). */
   value: number | string;
   hint?: ReactNode;
   loading?: boolean;
@@ -71,6 +71,12 @@ interface VolumeCardProps {
   /** Null pour period=custom → on affiche un message dédié dans le hint. */
   delta: VolumeDelta | null;
   loading?: boolean;
+  /**
+   * Inverse la sémantique couleur du delta : hausse = rouge, baisse = vert.
+   *  À utiliser pour les métriques où "plus" est mauvais (résiliations,
+   *  erreurs, incidents…). Défaut : false (hausse = vert, comportement legacy).
+   */
+  invertDeltaColor?: boolean;
 }
 
 export function VolumeCard({
@@ -78,12 +84,13 @@ export function VolumeCard({
   value,
   delta,
   loading,
+  invertDeltaColor = false,
 }: VolumeCardProps) {
   return (
     <StatCardBase
       label={label}
       loading={loading}
-      hint={<DeltaIndicator delta={delta} />}
+      hint={<DeltaIndicator delta={delta} invertColor={invertDeltaColor} />}
     >
       <div className="text-3xl font-semibold tracking-tight tabular-nums">
         {formatNumber(value)}
@@ -94,7 +101,14 @@ export function VolumeCard({
 
 // ─── DeltaIndicator ──────────────────────────────────────────────────────────
 
-function DeltaIndicator({ delta }: { delta: VolumeDelta | null }) {
+interface DeltaIndicatorProps {
+  delta: VolumeDelta | null;
+  /** Si true, inverse la palette : up = rose, down = emerald. L'icône reste
+   *  fidèle à la direction réelle (flèche haut si ça monte). */
+  invertColor?: boolean;
+}
+
+function DeltaIndicator({ delta, invertColor = false }: DeltaIndicatorProps) {
   // Cas 1 : période custom → pas de comparaison possible.
   if (delta === null) {
     return (
@@ -111,11 +125,17 @@ function DeltaIndicator({ delta }: { delta: VolumeDelta | null }) {
   const isFlat = value === 0;
 
   const Icon = isFlat ? Minus : isUp ? ArrowUp : ArrowDown;
-  const colorClass = isFlat
-    ? 'text-muted-foreground'
-    : isUp
-      ? 'text-emerald-600 dark:text-emerald-500'
-      : 'text-rose-600 dark:text-rose-500';
+
+  // Sémantique couleur : par défaut hausse = bien (vert). Si invertColor,
+  // on inverse — la flèche reste dans le sens de la variation, mais rouge.
+  const goodClass = 'text-emerald-600 dark:text-emerald-500';
+  const badClass = 'text-rose-600 dark:text-rose-500';
+  const flatClass = 'text-muted-foreground';
+
+  const upClass = invertColor ? badClass : goodClass;
+  const downClass = invertColor ? goodClass : badClass;
+
+  const colorClass = isFlat ? flatClass : isUp ? upClass : downClass;
 
   // On préfixe manuellement le "+" pour les valeurs positives. Intl.NumberFormat
   // gère nativement le signe "−" pour les négatives.
@@ -128,13 +148,10 @@ function DeltaIndicator({ delta }: { delta: VolumeDelta | null }) {
       <span className="font-medium tabular-nums">
         {valuePrefix}
         {formatNumber(value)}
-        {percent !== null && (
-          <>
-            {' '}
-            ({percentPrefix}
-            {percent.toFixed(1)}%)
-          </>
-        )}
+        {' '}
+        ({percent === null
+          ? '—'
+          : `${percentPrefix}${percent.toFixed(1)}%`})
       </span>
       <span className="font-normal text-muted-foreground">
         vs période précédente
