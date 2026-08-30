@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from 'react';
 import { UserPlus, RefreshCw, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { RequireCapability } from '@/components/auth/require-capability';
 import { AdminsFilters } from '@/components/admins/admins-filters';
@@ -12,19 +11,33 @@ import type {
 } from '@/components/admins/admins-filters';
 import { AdminsTable, AdminsTableEmpty } from '@/components/admins/admins-table';
 import { InviteAdminModal } from '@/components/admins/invite-admin-modal';
-import { useAdmins, useUpdateAdminStatus } from '@/hooks/use-admins';
+import { AdminRoleChangeDialog } from '@/components/admins/admin-role-change-dialog';
+import { useAdmins } from '@/hooks/use-admins';
 import { useCan } from '@/hooks/use-current-admin';
-import { isDeletedEmail } from '@/lib/admin-helpers';
-import type { Admin } from '@/lib/admin-types';
-
-// ─── Double-state pattern (input vs applied) ─────────────────────────────────
-//
-// Le search est saisi dans un input : on ne veut pas fire une query à chaque
-// frappe. On sépare l'état "input" (contrôlé, immédiat) de l'état "applied"
-// (envoyé à la query TanStack). Bouton "Rechercher" ou Enter → sync.
-//
-// Les autres filtres (role, isActive, showDeleted) sont appliqués
-// immédiatement — pas de risque de flood, choix discrets.
+import {
+  computeAdminStatus,
+  formatAdminDisplayName,
+  isDeletedEmail,
+} from '@/lib/admin-helpers';
+import type { Admin, AdminStatus } from '@/lib/admin-types';
+// Import du dialog de status actions — extrait de la logique de la page
+// detail pour réutilisation ici. Voir note en bas de fichier.
+import { useUpdateAdminStatus } from '@/hooks/use-admins';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from 'sonner';
+import { adminErrorMessage } from '@/lib/admin-helpers';
+import { ApiError } from '@/lib/types';
 
 const INITIAL_FILTERS: AdminsFiltersState = {
   search: '',
@@ -42,27 +55,25 @@ export default function AdminsPage() {
 }
 
 function AdminsPageContent() {
-  // State input (contrôlé par les inputs)
   const [inputFilters, setInputFilters] =
     useState<AdminsFiltersState>(INITIAL_FILTERS);
-  // State applied (envoyé à la query)
   const [appliedFilters, setAppliedFilters] =
     useState<AdminsFiltersState>(INITIAL_FILTERS);
 
   const canManage = useCan('admins.manage');
   const [inviteOpen, setInviteOpen] = useState(false);
 
-  // ─── Query ────────────────────────────────────────────────────────────
+  // ─── State pour les modales d'action depuis la row dropdown ───────────
   //
-  // Mapping filtres UI → params backend :
-  //   isActive 'all'      → undefined (pas de filtre)
-  //   isActive 'active'   → true
-  //   isActive 'inactive' → false
-  //
-  // Le toggle "Afficher supprimés" est un filtre CLIENT-SIDE post-fetch,
-  // parce que le backend ne distingue pas PAUSED de DELETED via isActive
-  // (les 2 sont isActive=false). Voir isDeletedEmail() dans admin-helpers.
+  // On stocke l'admin cible pour partager avec les 2 modales. Une modale
+  // par action ouverte à la fois — pas de conflit possible.
+  const [roleChangeTarget, setRoleChangeTarget] = useState<Admin | null>(null);
+  const [statusChangeTarget, setStatusChangeTarget] = useState<{
+    admin: Admin;
+    action: 'suspend' | 'reactivate' | 'delete';
+  } | null>(null);
 
+  // ─── Query ────────────────────────────────────────────────────────────
   const query = useAdmins({
     search: appliedFilters.search.trim() || undefined,
     role: appliedFilters.role,
@@ -70,7 +81,6 @@ function AdminsPageContent() {
     limit: 25,
   });
 
-  // Flatten pages + filter client-side selon showDeleted
   const admins: Admin[] = useMemo(() => {
     const flat = query.data?.pages.flatMap((p) => p.items) ?? [];
     if (appliedFilters.showDeleted) return flat;
@@ -85,12 +95,9 @@ function AdminsPageContent() {
     appliedFilters.showDeleted;
 
   // ─── Handlers filtres ─────────────────────────────────────────────────
-
   const handleInputChange = (patch: Partial<AdminsFiltersState>) => {
     setInputFilters((prev) => ({ ...prev, ...patch }));
 
-    // Les filtres discrets (role, isActive, showDeleted) s'appliquent
-    // immédiatement — pas besoin d'attendre un submit.
     const immediateKeys: Array<keyof AdminsFiltersState> = [
       'role',
       'isActive',
@@ -102,52 +109,23 @@ function AdminsPageContent() {
     }
   };
 
-  const handleSubmitSearch = () => {
-    setAppliedFilters(inputFilters);
-  };
-
+  const handleSubmitSearch = () => setAppliedFilters(inputFilters);
   const handleReset = () => {
     setInputFilters(INITIAL_FILTERS);
     setAppliedFilters(INITIAL_FILTERS);
   };
 
-  // ─── Handlers actions row ─────────────────────────────────────────────
-  //
-  // La modale de role change et l'AlertDialog de status change seront
-  // livrés au Checkpoint 5c.3 (page detail). Ici on route juste vers la
-  // page detail — l'utilisateur y fera l'action.
-  //
-  // Décision de design : plutôt que de dupliquer les modales dans la page
-  // liste, on centralise les actions dans /settings/admins/[id]. Le
-  // dropdown de la row propose donc "Changer le rôle" et "Suspendre" qui
-  // ouvriront ces modales sur la page detail.
-
-  const statusMutation = useUpdateAdminStatus();
-
+  // ─── Handlers row actions ─────────────────────────────────────────────
   const handleRoleChangeRequest = (admin: Admin) => {
-    // Sera implémenté au 5c.3 sur la page detail. Pour l'instant on toast
-    // + route.
-    toast.info(`Ouvre la fiche de ${admin.email} pour changer le rôle.`);
-    window.location.href = `/settings/admins/${admin.id}`;
+    setRoleChangeTarget(admin);
   };
 
   const handleStatusChangeRequest = (
     admin: Admin,
     action: 'suspend' | 'reactivate' | 'delete',
   ) => {
-    // Idem — délégué au 5c.3.
-    toast.info(
-      `Ouvre la fiche de ${admin.email} pour ${
-        action === 'delete' ? 'supprimer' : action === 'suspend' ? 'suspendre' : 'réactiver'
-      }.`,
-    );
-    window.location.href = `/settings/admins/${admin.id}`;
+    setStatusChangeTarget({ admin, action });
   };
-
-  // Note pour 5c.3 : statusMutation sera utilisé sur la page detail, pas ici.
-  void statusMutation;
-
-  // ─── Render ───────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 p-6">
@@ -182,7 +160,6 @@ function AdminsPageContent() {
             />
           </Button>
 
-          {/* Bouton Inviter : uniquement pour SUPER_ADMIN (admins.manage) */}
           {canManage && (
             <Button onClick={() => setInviteOpen(true)}>
               <UserPlus className="mr-2 h-4 w-4" />
@@ -192,7 +169,6 @@ function AdminsPageContent() {
         </div>
       </div>
 
-      {/* Filtres */}
       <AdminsFilters
         values={inputFilters}
         onChange={handleInputChange}
@@ -200,7 +176,6 @@ function AdminsPageContent() {
         onReset={handleReset}
       />
 
-      {/* Contenu */}
       {query.isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -224,7 +199,6 @@ function AdminsPageContent() {
             onRequestStatusChange={handleStatusChangeRequest}
           />
 
-          {/* Pagination : bouton "Charger plus" cursor-based */}
           {query.hasNextPage && (
             <div className="flex justify-center">
               <Button
@@ -244,7 +218,174 @@ function AdminsPageContent() {
 
       {/* Modale d'invitation */}
       <InviteAdminModal open={inviteOpen} onOpenChange={setInviteOpen} />
+
+      {/* Modale de changement de rôle depuis la row */}
+      {roleChangeTarget && (
+        <AdminRoleChangeDialog
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setRoleChangeTarget(null);
+          }}
+          adminId={roleChangeTarget.id}
+          adminDisplayName={formatAdminDisplayName(roleChangeTarget)}
+          currentRole={roleChangeTarget.role}
+        />
+      )}
+
+      {/* AlertDialog de changement de status depuis la row (inline) */}
+      {statusChangeTarget && (
+        <StatusChangeInlineDialog
+          admin={statusChangeTarget.admin}
+          action={statusChangeTarget.action}
+          onClose={() => setStatusChangeTarget(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── StatusChangeInlineDialog ────────────────────────────────────────────────
+//
+// Version "inline dans la liste" de l'AlertDialog de suspend/reactivate/delete.
+// Utilise la même logique que AdminStatusActions (page detail) mais adaptée
+// pour recevoir l'admin en prop plutôt que via state interne.
+//
+// Design decision : on ne réutilise pas AdminStatusActions directement parce
+// que ce composant rend un panneau "Actions" avec boutons + AlertDialog. Ici
+// on veut juste l'AlertDialog déclenché depuis l'extérieur. Faire un split
+// entre le panneau et le dialog compliquerait le composant pour un seul
+// usage — on duplique ~40 lignes de dialog logic, acceptable.
+
+interface StatusChangeInlineDialogProps {
+  admin: Admin;
+  action: 'suspend' | 'reactivate' | 'delete';
+  onClose: () => void;
+}
+
+function StatusChangeInlineDialog({
+  admin,
+  action,
+  onClose,
+}: StatusChangeInlineDialogProps) {
+  const mutation = useUpdateAdminStatus();
+  const [reason, setReason] = useState('');
+  const displayName = formatAdminDisplayName(admin);
+  const isPending = mutation.isPending;
+
+  const runAction = async () => {
+    if (action === 'delete' && reason.trim().length === 0) {
+      toast.error('La raison de la suppression est obligatoire.');
+      return;
+    }
+
+    const targetStatus: AdminStatus =
+      action === 'suspend'
+        ? 'PAUSED'
+        : action === 'reactivate'
+          ? 'ACTIVE'
+          : 'DELETED';
+
+    try {
+      await mutation.mutateAsync({
+        id: admin.id,
+        body: {
+          status: targetStatus,
+          ...(reason.trim().length > 0 && { reason: reason.trim() }),
+        },
+      });
+      toast.success(
+        action === 'delete'
+          ? `${displayName} a été supprimé.`
+          : action === 'suspend'
+            ? `${displayName} a été suspendu.`
+            : `${displayName} a été réactivé.`,
+      );
+      onClose();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        toast.error(adminErrorMessage(err.code));
+      } else {
+        toast.error('Erreur inattendue.');
+      }
+    }
+  };
+
+  return (
+    <AlertDialog
+      open={true}
+      onOpenChange={(open) => {
+        if (!open && !isPending) onClose();
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {action === 'suspend' && 'Suspendre cet admin ?'}
+            {action === 'reactivate' && 'Réactiver cet admin ?'}
+            {action === 'delete' && 'Supprimer cet admin ?'}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {action === 'suspend' &&
+              `${displayName} ne pourra plus se connecter au dashboard tant qu'il n'est pas réactivé.`}
+            {action === 'reactivate' &&
+              `${displayName} pourra de nouveau se connecter au dashboard.`}
+            {action === 'delete' && (
+              <>
+                <strong>Action irréversible.</strong> {displayName} sera
+                supprimé et toutes ses sessions révoquées.
+              </>
+            )}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        {action !== 'reactivate' && (
+          <div className="space-y-2">
+            <Label htmlFor="inline-action-reason">
+              Raison{' '}
+              {action === 'delete' ? (
+                <span className="text-destructive">*</span>
+              ) : (
+                <span className="text-muted-foreground">(optionnel)</span>
+              )}
+            </Label>
+            <Textarea
+              id="inline-action-reason"
+              placeholder={
+                action === 'delete'
+                  ? 'Ex : départ de la société, compte compromis…'
+                  : 'Ex : suspension temporaire pour investigation…'
+              }
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              maxLength={500}
+              disabled={isPending}
+            />
+          </div>
+        )}
+
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={isPending}>Annuler</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={(e) => {
+              e.preventDefault();
+              runAction();
+            }}
+            disabled={isPending}
+            className={
+              action === 'delete'
+                ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                : undefined
+            }
+          >
+            {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {action === 'suspend' && 'Suspendre'}
+            {action === 'reactivate' && 'Réactiver'}
+            {action === 'delete' && 'Supprimer'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
