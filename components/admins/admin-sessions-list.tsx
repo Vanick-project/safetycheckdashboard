@@ -1,7 +1,8 @@
 'use client';
 
-import { Globe, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { Globe } from 'lucide-react';
 import { formatDateTime, formatRelative } from '@/lib/format';
+import { parseUserAgent } from '@/lib/user-agent-parser';
 import type { AdminSession } from '@/lib/admin-types';
 
 interface AdminSessionsListProps {
@@ -101,47 +102,4 @@ function SessionRow({ session }: { session: AdminSession }) {
       </div>
     </li>
   );
-}
-
-// ─── User agent parsing (léger, sans deps) ───────────────────────────────────
-//
-// Suffisant pour distinguer mobile vs desktop vs tablet et donner un summary
-// lisible. On ne veut pas embarquer ua-parser-js pour ça.
-
-function parseUserAgent(ua: string | null): {
-  Icon: typeof Monitor;
-  deviceType: string;
-  summary: string;
-} {
-  if (!ua) {
-    return {
-      Icon: Globe,
-      deviceType: 'Inconnu',
-      summary: 'Client inconnu',
-    };
-  }
-
-  const isMobile = /iPhone|Android(?!.*Tablet)|Windows Phone/i.test(ua);
-  const isTablet = /iPad|Android.*Tablet|Tablet PC/i.test(ua);
-  const Icon = isTablet ? Tablet : isMobile ? Smartphone : Monitor;
-  const deviceType = isTablet ? 'Tablette' : isMobile ? 'Mobile' : 'Desktop';
-
-  // Détection navigateur + OS (best-effort, pas parfait)
-  let browser = 'Navigateur';
-  if (/Edg\//.test(ua)) browser = 'Edge';
-  else if (/Chrome\//.test(ua) && !/Chromium/.test(ua)) browser = 'Chrome';
-  else if (/Firefox\//.test(ua)) browser = 'Firefox';
-  else if (/Safari\//.test(ua) && !/Chrome/.test(ua)) browser = 'Safari';
-
-  let os = '';
-  if (/Windows NT 10/.test(ua)) os = 'Windows 10/11';
-  else if (/Windows/.test(ua)) os = 'Windows';
-  else if (/Mac OS X/.test(ua)) os = 'macOS';
-  else if (/Linux/.test(ua)) os = 'Linux';
-  else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
-  else if (/Android/.test(ua)) os = 'Android';
-
-  const summary = os ? `${browser} sur ${os}` : browser;
-
-  return { Icon, deviceType, summary };
 }

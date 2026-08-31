@@ -1,10 +1,11 @@
 // ─── app/(dashboard)/settings/page.tsx ────────────────────────────────────────
 // Préférences personnelles de l'admin connecté.
-// Structure : sections empilées (Q1 = A). À venir : 2FA (5c.3), Sessions (5c.2).
+// Structure : sections empilées. À venir : 2FA (5c.3).
 // Note : la gestion des ADMINS (l'annuaire) est sur /settings/admins,
 // ce fichier concerne uniquement les préférences de l'admin courant.
 
 import { PasswordChangeCard } from '@/components/settings/password-change-card';
+import { SessionsCard } from '@/components/settings/sessions-card';
 
 export default function SettingsPage() {
   return (
@@ -17,10 +18,10 @@ export default function SettingsPage() {
       </div>
 
       <PasswordChangeCard />
+      <SessionsCard />
 
       {/* À venir :
-          - <TwoFactorResetCard />  (checkpoint 5c.3)
-          - <SessionsCard />        (checkpoint 5c.2) */}
+          - <TwoFactorResetCard />  (checkpoint 5c.3) */}
     </div>
   );
 }
