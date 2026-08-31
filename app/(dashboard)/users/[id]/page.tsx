@@ -3,13 +3,13 @@
 import { use } from 'react';
 import Link from 'next/link';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { UserAlertsTimeline } from '@/components/users/user-alerts-timeline';
 import { UserCheckinTimeline } from '@/components/users/user-checkin-timeline';
 import { UserDetailHeader } from '@/components/users/user-detail-header';
 import { UserEmergencyContacts } from '@/components/users/user-emergency-contacts';
+import { UserSubscriptionHistory } from '@/components/users/user-subscription-history';
 import { useAdminUser } from '@/hooks/use-admin-users';
 import { ApiError } from '@/lib/types';
 
@@ -48,6 +48,9 @@ export default function UserDetailPage({ params }: UserDetailPageProps) {
           </div>
 
           <UserAlertsTimeline alerts={user.alertEvents} />
+
+          {/* Section RBAC-gatée en interne — invisible pour ANALYST et rôles org */}
+          <UserSubscriptionHistory userId={id} />
         </>
       )}
     </div>

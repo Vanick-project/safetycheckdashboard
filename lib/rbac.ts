@@ -13,8 +13,10 @@
 //   - users.suspend       : PATCH status ACTIVE ↔ PAUSED (les deux sens)
 //   - users.delete        : PATCH status → DELETED (terminal)
 //   - audit-log.view      : voir la page /audit-log
-//   - admins.view         : voir la liste des admins (à venir Checkpoint 5c)
+//   - admins.view         : voir la liste des admins
 //   - admins.manage       : CRUD complet des admins (invite/edit/suspend)
+//   - payments.view       : voir l'historique d'abonnement d'un user
+//                           (GET /admin/users/:id/subscription-history)
 
 import type { AdminRole } from './types';
 
@@ -26,6 +28,10 @@ export const CAPABILITIES = {
   'audit-log.view':  ['SUPER_ADMIN', 'ADMIN', 'FINANCE', 'SUPPORT', 'ANALYST'],
   'admins.view':     ['SUPER_ADMIN', 'ADMIN'],
   'admins.manage':   ['SUPER_ADMIN'],
+  // Données de paiement au niveau nominatif : ANALYST exclu (accès aux
+  // aggregate anonymes du dashboard suffit — le nominatif est plus sensible).
+  // Rôles org exclus par défaut, activer si le B2B devient tenant-aware.
+  'payments.view':   ['SUPER_ADMIN', 'ADMIN', 'FINANCE', 'SUPPORT'],
 } as const satisfies Record<string, readonly AdminRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;
@@ -68,9 +74,6 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
   SUPPORT: 'Support',
   ANALYST: 'Analyste',
   // ─── Rôles org (multi-tenant B2B — pas encore activé) ─────────────────
-  // Ajoutés pour matcher AdminRole côté backend. Ils apparaîtront dans le
-  // dropdown du form d'invitation au Checkpoint 5c.2 si un organizationId
-  // est passé. En attendant, l'UI ne les affiche pas.
   ORG_OWNER: 'Propriétaire (org)',
   ORG_ADMIN: 'Admin (org)',
   ORG_VIEWER: 'Lecteur (org)',
