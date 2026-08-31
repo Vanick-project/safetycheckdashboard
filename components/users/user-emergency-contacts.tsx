@@ -14,7 +14,7 @@ export function UserEmergencyContacts({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
-          <span>Contacts d\u2019urgence</span>
+          <span>Contacts d'urgence</span>
           <Badge variant="outline" className="font-mono text-xs">
             {contacts.length}
           </Badge>
@@ -23,7 +23,7 @@ export function UserEmergencyContacts({
       <CardContent>
         {contacts.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">
-            Aucun contact d\u2019urgence configuré.
+            Aucun contact d'urgence configuré.
           </p>
         ) : (
           <ol className="space-y-3">
